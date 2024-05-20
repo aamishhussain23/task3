@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request, Query
 from pydantic import BaseModel
 from datetime import datetime
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from typing import Optional, Dict, Any
 import uvicorn
 
 app = FastAPI()
@@ -17,17 +18,7 @@ def write_to_sheet(data: dict, credentials: Credentials):
     sheet = service.spreadsheets()
     spreadsheet_id = '1A8Mpe-dStdBKjc7DIc4WQSWRm-YK2KFB4o7qGVFBcY8'  # Replace with your actual spreadsheet ID
     range_name = 'Sheet1'  # Replace with your actual sheet name and range
-    values = [
-        [
-            data["Order Code"],
-            data["Ticker"],
-            data["Sale Date"],
-            data["Customer Name"],
-            data["Gender"],
-            data["City"],
-            data["Order Amount"]
-        ]
-    ]
+    values = [list(data.values())]
     body = {
         'values': values
     }
@@ -38,56 +29,44 @@ def write_to_sheet(data: dict, credentials: Credentials):
         body=body
     ).execute()
 
-@app.post("/receive-token-form/{param:path}")
-async def receive_token_form(
+@app.post("/receive-data/{param:path}")
+async def receive_data(
     param: str,
     request: Request,
-    token: str = Form(...),
-    time: str = Form(...)
+    token: Optional[str] = Form(None),
+    time: Optional[str] = Form(None),
+    token_query: Optional[str] = Query(None, alias="token"),
+    time_query: Optional[str] = Query(None, alias="time")
 ):
-    print(f"Received param: {param}")
-    print(f"Received token: {token}")
-    print(f"Received time: {time}")
-    # Prepare the row data
-    row_data = {
-        "Order Code": 123456789,
-        "Ticker": param,  # Use the param received in the path
-        "Sale Date": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        "Customer Name": "John Doe",
-        "Gender": "Male",
-        "City": "New York",
-        "Order Amount": 1234
-    }
-    # Load the credentials
-    creds = Credentials(token=token)
-    # Write the row data to the sheet
-    try:
-        write_to_sheet(row_data, creds)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    return row_data
+    # Determine if data is coming in as form data, query parameters, or JSON payload
+    if request.headers.get('content-type') == 'application/x-www-form-urlencoded':
+        form_data = await request.form()
+        data = dict(form_data)
+    elif request.headers.get('content-type') == 'application/json':
+        data = await request.json()
+    else:
+        data = dict(request.query_params)
 
-@app.get("/receive-token-query/")
-async def receive_token_query(
-    param: str,
-    token: str,
-    time: str
-):
-    print(f"Received param: {param}")
-    print(f"Received token: {token}")
-    print(f"Received time: {time}")
+    # Add token and time to the data
+    data['token'] = token or token_query
+    data['time'] = time or time_query
+    data['param'] = param
+
     # Prepare the row data
     row_data = {
         "Order Code": 123456789,
-        "Ticker": param,  # Use the param received in the query
+        "Ticker": data.get("param", ""),
         "Sale Date": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        "Customer Name": "John Doe",
-        "Gender": "Male",
-        "City": "New York",
-        "Order Amount": 1234
+        "Customer Name": data.get("Customer Name", "Unknown"),
+        "Gender": data.get("Gender", "Unknown"),
+        "City": data.get("City", "Unknown"),
+        "Order Amount": data.get("Order Amount", "0"),
+        "Token": data.get("token", "None"),
+        "Time": data.get("time", "None")
     }
+
     # Load the credentials
-    creds = Credentials(token=token)
+    creds = Credentials(token=data['token'])
     # Write the row data to the sheet
     try:
         write_to_sheet(row_data, creds)
