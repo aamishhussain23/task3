@@ -1,9 +1,10 @@
-from fastapi import FastAPI, Form, HTTPException, Request, Query
+from fastapi import FastAPI, Form, HTTPException, Request, Query, Body
 from pydantic import BaseModel
 from datetime import datetime
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from typing import Optional, Dict, Any
+from typing import Optional
+import json
 import uvicorn
 
 app = FastAPI()
@@ -36,20 +37,25 @@ async def receive_data(
     token: Optional[str] = Form(None),
     time: Optional[str] = Form(None),
     token_query: Optional[str] = Query(None, alias="token"),
-    time_query: Optional[str] = Query(None, alias="time")
+    time_query: Optional[str] = Query(None, alias="time"),
+    json_body: Optional[TokenData] = Body(None)
 ):
+    # Initialize an empty data dictionary
+    data = {}
+
     # Determine if data is coming in as form data, query parameters, or JSON payload
     if request.headers.get('content-type') == 'application/x-www-form-urlencoded':
         form_data = await request.form()
-        data = dict(form_data)
+        data.update(form_data)
     elif request.headers.get('content-type') == 'application/json':
-        data = await request.json()
+        json_data = await request.json()
+        data.update(json_data)
     else:
-        data = dict(request.query_params)
+        data.update(request.query_params)
 
     # Add token and time to the data
-    data['token'] = token or token_query
-    data['time'] = time or time_query
+    data['token'] = data.get('token', token or token_query or (json_body.token if json_body else None))
+    data['time'] = data.get('time', time or time_query or (json_body.time if json_body else None))
     data['param'] = param
 
     # Prepare the row data
@@ -60,14 +66,12 @@ async def receive_data(
         "Customer Name": data.get("Customer Name", "Unknown"),
         "Gender": data.get("Gender", "Unknown"),
         "City": data.get("City", "Unknown"),
-        "Order Amount": data.get("Order Amount", "0"),
-        "Token": data.get("token", "None"),
-        "Time": data.get("time", "None")
+        "Order Amount": data.get("Order Amount", "0")
     }
 
     # Load the credentials
     creds = Credentials(token=data['token'])
-    print(creds)
+
     # Write the row data to the sheet
     try:
         write_to_sheet(row_data, creds)
