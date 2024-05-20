@@ -67,6 +67,7 @@ async def receive_data(
 
     # Load the credentials
     creds = Credentials(token=data['token'])
+    print(creds)
     # Write the row data to the sheet
     try:
         write_to_sheet(row_data, creds)
